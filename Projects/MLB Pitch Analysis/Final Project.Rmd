@@ -1,0 +1,165 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+
+
+
+Importing and cleaning datasets. 
+
+```{r}
+# Importing data sets and libraries
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+
+data <- read.csv("C:/Users/dylz3/Downloads/6_5-6_19 4Seam data - Sheet1.csv")
+head(data)
+
+
+# Renaming columns
+data <- data %>% rename(Pitch_MPH = Pitch..MPH.,
+                        Game_date = Game.Date,
+                        Perceived_velocity = Perceived.Velocity,
+                        RPM = Spin.Rate..RPM.,
+                        Downward_movement_gravity = Downward.Movement.w..Gravity..in.,
+                        Vertical_movement = Vertical.Movement.w.o.Gravity..in.,
+                        Exit_velocity = EV..MPH.)
+
+# Four rows had NA as its exit velocity. 
+data <- data %>% filter(is.na(Exit_velocity) == FALSE)
+
+
+# Some pitches have been tracked incorrectly, I am getting rid of those pitches
+# here. 
+data <- data %>% filter(RPM > 0)
+
+# I got rid of results that were sac bunts, because they are purposely
+# always slow, it would skew the regression. 
+data <- data %>% filter(Result != "Sac Bunt")
+
+head(data)
+```
+
+
+
+Visualizations
+```{r}
+# Visualizations to see shape of data (Histograms)
+hist(data$Exit_velocity, col = "green", xlab = "Exit Velocity (MPH)",
+     main = "Exit Velocity Histogram")
+hist(data$RPM, col = "red", xlab = "Spin Rate (RPM)", main = "Spin Rate Histogram")
+hist(data$Pitch_MPH, col = "orange", xlab = "Pitch Velocity (MPH)",
+     main = "Pitch Velocity Histogram")
+hist(data$Vertical_movement, col = "lightblue", xlab = "Vertical Movement (in)",
+     main = "Vertical Movement Histogram")
+
+
+# Visualizations to see regression (Scatterplots)
+data %>% ggplot(aes(x = Exit_velocity, y = Vertical_movement)) + 
+  geom_point(colour = "lightblue") +
+  labs(title = "Vertical Movement Vs. Exit Velocity",
+       x = "Exit Velocity (MPH)",
+       y = "Vertical Movement (in)")
+
+data %>% ggplot(aes(x = Exit_velocity, y = RPM)) + 
+  geom_point(colour = "red") +
+  labs(title = "Spin Rate Vs. Exit Velocity",
+       x = "Exit Velocity (MPH)",
+       y = "Spin Rate (RPM)")
+
+data %>% ggplot(aes(x = Exit_velocity, y = Pitch_MPH)) + 
+  geom_point(colour = "orange") +
+  labs(title = "Pitch Velocity Vs. Exit Velocity",
+       x = "Exit Velocity (MPH)",
+       y = "Pitch Velocity (MPH)")
+```
+
+Regression analysis
+```{r}
+# Corr Table
+corr_table_data <- data %>% select(Exit_velocity, Pitch_MPH, RPM,
+                                   Vertical_movement)
+
+corr_table <- cor(corr_table_data)
+corr_table
+
+
+# Regression summary
+
+MPH_model <- lm(Exit_velocity ~ Pitch_MPH, data=data)
+RPM_model <- lm(Exit_velocity ~ RPM, data=data)
+VM_model <- lm(Exit_velocity ~ Vertical_movement, data=data)
+
+summary(MPH_model)
+summary(RPM_model)
+summary(VM_model)
+```
+
+
+Machine Learning Model
+```{r}
+# ML Test
+
+
+ML_MPH <- corr_table_data %>% mutate(yhat = predict(MPH_model)) %>%
+  mutate(residual = Exit_velocity - yhat) %>% 
+  select(Exit_velocity, Pitch_MPH, yhat, residual)
+
+ML_RPM <- corr_table_data %>% mutate(yhat = predict(RPM_model)) %>%
+  mutate(residual = Exit_velocity - yhat) %>% 
+  select(Exit_velocity, RPM, yhat, residual)
+
+ML_VM <- corr_table_data %>% mutate(yhat = predict(VM_model)) %>%
+  mutate(residual = Exit_velocity - yhat) %>% 
+  select(Exit_velocity, Vertical_movement, yhat, residual)
+
+head(ML_RPM)
+
+mean(ML_MPH$residual, na.rm = TRUE)
+mean(ML_RPM$residual, na.rm = TRUE)
+mean(ML_VM$residual, na.rm = TRUE)
+
+# Plotting residuals
+
+ML_MPH %>% ggplot(aes(x = yhat, y = residual)) +
+  geom_point(colour = "orange") +
+  geom_hline(aes(yintercept=0)) +
+  labs(title = "Pitch Velocity Model Residuals",
+       x = "Predicted Exit Velocity (MPH)",
+       y = "Actual Exit Velocity - Predicted Exit Velocity (MPH)")
+
+ML_RPM %>% ggplot(aes(x = yhat, y = residual)) +
+  geom_point(colour = "red") +
+  geom_hline(aes(yintercept=0)) +
+  labs(title = "Spin Rate Model Residuals",
+       x = "Predicted Exit Velocity (MPH)",
+       y = "Actual Exit Velocity - Predicted Exit Velocity (MPH)")
+
+ML_VM %>% ggplot(aes(x = yhat, y = residual)) +
+  geom_point(colour = "lightblue") +
+  geom_hline(aes(yintercept=0)) +
+  labs(title = "Vertical Movement Model Residuals",
+       x = "Predicted Exit Velocity (MPH)",
+       y = "Actual Exit Velocity - Predicted Exit Velocity (MPH)")
+
+
+hist(ML_MPH$residual, col = "orange", 
+     main = "Pitch Velocity Residual Histogram", xlab = "Residual")
+hist(ML_RPM$residual, col = "red", 
+     main = "Spin Rate Residual Histogram", xlab = "Residual")
+hist(ML_VM$residual, col = "lightblue", 
+     main = "Vertical Movement Residual Histogram", xlab = "Residual")
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
