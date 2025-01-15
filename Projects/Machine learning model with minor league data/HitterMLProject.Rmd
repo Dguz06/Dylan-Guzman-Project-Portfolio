@@ -1,0 +1,539 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+
+Importing Data and Packages. Merging datasets
+```{r}
+library(dplyr)
+library(ggplot2)
+library(car)
+
+SASTD <- read.csv("AML - SA_STD.csv")
+SAADV <- read.csv("AML - SA_ADV.csv")
+SABAT <- read.csv("AML - SA_BAT.csv")
+MWSTD <- read.csv("AML - MW_STD.csv")
+MWADV <- read.csv("AML - MW_ADV.csv")
+MWBAT <- read.csv("AML - MW_BAT.csv")
+MLB <- read.csv("AML - MLB.csv")
+
+SA1 <- inner_join(SASTD, SAADV, by = "Name")
+SA <- inner_join(SA1, SABAT, by = "Name")
+
+MW1 <- inner_join(MWSTD, MWADV, by = "Name")
+MW <- inner_join(MW1, MWBAT, by = "Name")
+
+MILB <- bind_rows(SA, MW)
+
+data <- left_join(MILB, MLB, by = "Name", suffix = c("_A", "_MLB"))
+
+data <- data %>%
+  mutate(across(c(LD., GB., FB., IFFB., HR.FB, Pull., Cent., Oppo., SwStr., BB._A, K._A), 
+                ~ as.numeric(sub("%", "", .)) / 100))
+head(data)
+
+data %>% filter(PA_MLB > 400)
+
+```
+Out of 996 players in A ball, only 99 have had at least 500 plate appearances in the major leagues, just under 10%. My goal is to find a range of statistics that can predict A ball players to reach the 500 PA threshold at a greater rate. 
+
+
+Getting train and test sets
+```{r}
+set.seed(4036)
+train_index <- sample(nrow(data), 600)
+train <- data[train_index,]
+test <- data[-train_index,]
+train %>% filter(PA_MLB > 400)
+
+nrow(train %>% filter(PA_MLB > 400))
+
+```
+
+Creating first split:
+The goal is to find a range of a statistic that maximizes the percentage of players who have made it to the MLB. I'm going to begin with line drive%
+```{r}
+
+
+
+mlld <- function(){
+  minld <- min(train$LD.)
+  maxld <- max(train$LD.)
+  splitind <- 2:20
+  upperldcol <- c()
+  lowerldcol <- c()
+  totalldcol <- c()
+  srldcol <- c()
+  test_succcol <- c()
+  testtotalcol <- c()
+  for(i in splitind){
+    byld <- (maxld - minld)/i
+    rangeld <- seq(from = minld, to = maxld, by = byld)
+    for(x in rangeld){
+      success_rate <- nrow(train %>% filter(LD. >= x) %>% filter(LD. < x + byld) %>% filter(PA_MLB > 499)) / nrow(train %>% filter(LD. >= x) %>% filter(LD. < x + byld)) 
+      totalld <- nrow(train %>% filter(LD. >= x) %>% filter(LD. < x + byld))
+      if(success_rate > 0.1 && totalld > 5){
+        upperld <- x + byld
+        lowerld <- x
+        upperldcol <- c(upperldcol, upperld)
+        lowerldcol <- c(lowerldcol, lowerld)
+        totalldcol <- c(totalldcol, totalld)
+        srldcol <- c(srldcol, success_rate)
+        
+        test_success <- nrow(test %>% filter(LD. >= lowerld) %>% filter(LD. < upperld) %>% filter(PA_MLB > 499)) / nrow(test %>% filter(LD. >= lowerld) %>% filter(LD. < upperld))
+        testtotal <- nrow(test %>% filter(LD. >= lowerld) %>% filter(LD. < upperld))
+        test_succcol <- c(test_succcol, test_success)
+        testtotalcol <- c(testtotalcol, testtotal)
+      }
+      
+    }
+    success_ranges <- data.frame(success = srldcol, lower = lowerldcol, upper = upperldcol, total = totalldcol, test_success = test_succcol, test_total = testtotalcol)
+    print(success_ranges)
+  }
+
+} 
+  
+mlld()
+
+
+
+
+```
+
+
+Now, I'm going to try and make the model with two iterations, line drive % and BB/K
+```{r}
+
+
+
+ml2 <- function(){
+  min <- min(train$LD.)
+  max <- max(train$LD.)
+  min2 <- min(train$BB.K_A)
+  max2 <- max(train$BB.K_A)
+  splitind <- 2:20
+  uppercol <- c()
+  lowercol <- c()
+  totalcol <- c()
+  uppercol2 <- c()
+  lowercol2 <- c()
+  totalcol2 <- c()
+  srcol <- c()
+  test_succcol <- c()
+  testtotalcol <- c()
+  for(i in splitind){
+    group <- (max - min)/i
+    range <- seq(from = min, to = max, by = group)
+    group2 <- (max2 - min2)/i
+    range2 <- seq(from = min2, to = max2, by = group2)
+    for(x in range){
+      y <- x
+      for(z in range2){
+        
+        success_rate <- nrow(train %>% filter(LD. >= y) %>% filter(LD. < y + group) %>% filter(BB.K_A >= z) %>% filter(BB.K_A < z + group) %>% filter(PA_MLB > 499)) / nrow(train %>% filter(LD. >= y) %>% filter(LD. < y + group) %>% filter(BB.K_A >= z) %>% filter(BB.K_A < z + group)) 
+        
+        total <- nrow(train %>% filter(LD. >= y) %>% filter(LD. < y + group) %>% filter(BB.K_A >= z) %>% filter(BB.K_A < z + group))
+        
+        
+        
+        
+        if(success_rate > 0.1 && total > 5){
+          upper <- y + group
+          lower <- y
+          upper2 <- z + group2
+          lower2 <- z
+          uppercol <- c(uppercol, upper)
+          lowercol <- c(lowercol, lower)
+          uppercol2 <- c(uppercol2, upper2)
+          lowercol2 <- c(lowercol2, lower2)
+          totalcol <- c(totalcol, total)
+          srcol <- c(srcol, success_rate)
+          
+          test_success <- nrow(test %>% filter(LD. >= lower) %>% filter(LD. < upper) %>% filter(BB.K_A >= lower2) %>% filter(BB.K_A < upper2) %>% filter(PA_MLB > 499)) / nrow(test %>% filter(LD. >= lower) %>% filter(LD. < upper) %>% filter(BB.K_A >= lower2) %>% filter(BB.K_A < upper2))
+          
+          testtotal <- nrow(test %>% filter(LD. >= lower) %>% filter(LD. < upper) %>% filter(BB.K_A >= lower2) %>% filter(BB.K_A < upper2))
+          
+          test_succcol <- c(test_succcol, test_success)
+          testtotalcol <- c(testtotalcol, testtotal)
+        }
+      }
+      
+    }
+    success_ranges <- data.frame(success = srcol, lower = lowercol, upper = uppercol, lower2 = lowercol2, upper2 = uppercol2, total = totalcol, test_success = test_succcol, test_total = testtotalcol)
+    print(success_ranges)
+  }
+
+} 
+
+ml2()
+
+
+
+
+
+```
+
+
+
+
+
+
+Now the goal is to iterate through 3 statistics, each from a different category. 
+
+
+```{r}
+
+  splitind <- 2:10
+  uppercol <- c()
+  lowercol <- c()
+  totalcol <- c()
+  uppercol2 <- c()
+  lowercol2 <- c()
+  totalcol2 <- c()
+  uppercol3 <- c()
+  lowercol3 <- c()
+  totalcol3 <- c()
+  srcol <- c()
+  test_succcol <- c()
+  testtotalcol <- c()
+  comb_success <- c()
+  stat1 <- c()
+  stat2 <- c()
+  stat3 <- c()  
+
+myfun <- function(var1, var2, var3) {
+  min <- min(train[[var1]], na.rm = TRUE)
+  max <- max(train[[var1]], na.rm = TRUE)
+  min2 <- min(train[[var2]], na.rm = TRUE)
+  max2 <- max(train[[var2]], na.rm = TRUE)
+  min3 <- min(train[[var3]], na.rm = TRUE)
+  max3 <- max(train[[var3]], na.rm = TRUE)
+  
+  
+  
+  for (i in splitind) {
+    group <- (max - min) / i
+    range <- seq(from = min, to = max, by = group)
+    group2 <- (max2 - min2) / i
+    range2 <- seq(from = min2, to = max2, by = group2)
+    group3 <- (max3 - min3) / i
+    range3 <- seq(from = min3, to = max3, by = group3)
+    
+    for (y in range) {
+      for (q in range2) {
+        for (s in range3) {
+          # Calculate successes and total
+          successes <- sum(
+            train[[var1]] >= y & train[[var1]] < (y + group) &
+              train[[var2]] >= q & train[[var2]] < (q + group2) &
+              train[[var3]] >= s & train[[var3]] < (s + group3) &
+              train$PA_MLB > 499,
+            na.rm = TRUE
+          )
+          
+          total <- sum(
+            train[[var1]] >= y & train[[var1]] < (y + group) &
+              train[[var2]] >= q & train[[var2]] < (q + group2) &
+              train[[var3]] >= s & train[[var3]] < (s + group3),
+            na.rm = TRUE
+          )
+          test_successes <- sum(
+                test[[var1]] >= y & test[[var1]] < (y + group) &
+                  test[[var2]] >= q & test[[var2]] < (q + group2) &
+                  test[[var3]] >= s & test[[var3]] < (s + group3) &
+                  test$PA_MLB > 499,
+                na.rm = TRUE
+              )
+              
+              testtotal <- sum(
+                test[[var1]] >= y & test[[var1]] < (y + group) &
+                  test[[var2]] >= q & test[[var2]] < (q + group2) &
+                  test[[var3]] >= s & test[[var3]] < (s + group3),
+                na.rm = TRUE
+              )
+              
+              test_success <- ifelse(testtotal > 0, test_successes / testtotal, NA)
+          # Avoid division by zero and missing values
+          if (total > 0) {
+            success_rate <- successes / total
+            
+            if (!is.na(success_rate) && success_rate > 0.2 && total > 10 && !is.na(test_success) && test_success > 0.2) {
+              upper <- y + group
+              lower <- y
+              upper2 <- q + group2
+              lower2 <- q
+              upper3 <- s + group3
+              lower3 <- s
+              
+              uppercol <- c(uppercol, upper)
+              lowercol <- c(lowercol, lower)
+              uppercol2 <- c(uppercol2, upper2)
+              lowercol2 <- c(lowercol2, lower2)
+              uppercol3 <- c(uppercol3, upper3)
+              lowercol3 <- c(lowercol3, lower3)
+              totalcol <- c(totalcol, total)
+              srcol <- c(srcol, success_rate)
+              
+              # Test set calculations
+              
+              
+              test_succcol <- c(test_succcol, test_success)
+              testtotalcol <- c(testtotalcol, testtotal)
+              
+              success_comb <- (total*success_rate + testtotal*test_success)/(total + testtotal)
+              comb_success <- c(comb_success, success_comb)
+              
+              stat1 <- c(stat1, var1)
+              stat2 <- c(stat2, var2)
+              stat3 <- c(stat3, var3)
+            }
+          }
+        }
+      }
+    }
+  }
+  success_ranges <- data.frame(
+    success = srcol,
+    total = totalcol,
+    test_success = test_succcol,
+    test_total = testtotalcol,
+    overall_success = comb_success,
+    metric1 = stat1,
+    lower = lowercol,
+    upper = uppercol,
+    metric2 = stat2,
+    lower2 = lowercol2,
+    upper2 = uppercol2,
+    metric3 = stat3,
+    lower3 = lowercol3,
+    upper3 = uppercol3
+    
+)
+  return(success_ranges)
+}
+
+cat1 <- c("LD.", "FB.", "GB.", "GB.FB", "HR.FB")
+cat2 <- c("Pull.", "Cent.", "Oppo.")
+cat3 <- c("BB._A", "K._A", "BB.K_A")
+cat4 <- c("AVG.y", "OBP_A", "SLG_A", "OPS_A", "ISO_A")
+
+all_sr <- data.frame()
+sr1 <- data.frame()
+
+for (a in 1:5) {
+  b <- cat1[a]
+  for (c in 1:5) {
+    d <- cat4[c]
+    for (e in 1:3) {
+      f <- cat2[e]
+      sr <- myfun(b, d, f)
+      sr1 <- rbind(sr1, sr)
+    }
+  }
+}
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+Function with 4 predictors
+```{r}
+
+  splitind <- 2:10
+  uppercol <- c()
+  lowercol <- c()
+  totalcol <- c()
+  uppercol2 <- c()
+  lowercol2 <- c()
+  totalcol2 <- c()
+  uppercol3 <- c()
+  lowercol3 <- c()
+  totalcol3 <- c()
+  uppercol4 <- c()
+  lowercol4 <- c()
+  totalcol4 <- c()
+  srcol <- c()
+  test_succcol <- c()
+  testtotalcol <- c()
+  comb_success <- c()
+  stat1 <- c()
+  stat2 <- c()
+  stat3 <- c()  
+  stat4 <- c()
+
+myfun <- function(var1, var2, var3, var4) {
+  min <- min(train[[var1]], na.rm = TRUE)
+  max <- max(train[[var1]], na.rm = TRUE)
+  min2 <- min(train[[var2]], na.rm = TRUE)
+  max2 <- max(train[[var2]], na.rm = TRUE)
+  min3 <- min(train[[var3]], na.rm = TRUE)
+  max3 <- max(train[[var3]], na.rm = TRUE)
+  min4 <- min(train[[var4]], na.rm = TRUE)
+  max4 <- max(train[[var4]], na.rm = TRUE)
+  
+  
+  for (i in splitind) {
+    group <- (max - min) / i
+    range <- seq(from = min, to = max, by = group)
+    group2 <- (max2 - min2) / i
+    range2 <- seq(from = min2, to = max2, by = group2)
+    group3 <- (max3 - min3) / i
+    range3 <- seq(from = min3, to = max3, by = group3)
+    group4 <- (max4 - min4) / i
+    range4 <- seq(from = min4, to = max4, by = group4)
+    
+    for (y in range) {
+      for (q in range2) {
+        for (s in range3) {
+          for(r in range4){
+          # Calculate successes and total
+          successes <- sum(
+            train[[var1]] >= y & train[[var1]] < (y + group) &
+              train[[var2]] >= q & train[[var2]] < (q + group2) &
+              train[[var3]] >= s & train[[var3]] < (s + group3) &
+              train[[var4]] >= r & train[[var4]] < (r + group4) &
+              train$PA_MLB > 400,
+            na.rm = TRUE
+          )
+          
+          total <- sum(
+            train[[var1]] >= y & train[[var1]] < (y + group) &
+              train[[var2]] >= q & train[[var2]] < (q + group2) &
+              train[[var3]] >= s & train[[var3]] < (s + group3) &
+              train[[var4]] >= r & train[[var4]] < (r + group4),
+            na.rm = TRUE
+          )
+          test_successes <- sum(
+                test[[var1]] >= y & test[[var1]] < (y + group) &
+                  test[[var2]] >= q & test[[var2]] < (q + group2) &
+                  test[[var3]] >= s & test[[var3]] < (s + group3) &
+                  test[[var4]] >= r & test[[var4]] < (r + group4) &
+                  test$PA_MLB > 400,
+                na.rm = TRUE
+              )
+              
+              testtotal <- sum(
+                test[[var1]] >= y & test[[var1]] < (y + group) &
+                  test[[var2]] >= q & test[[var2]] < (q + group2) &
+                  test[[var3]] >= s & test[[var3]] < (s + group3) &
+                  test[[var4]] >= r & test[[var4]] < (r + group4),
+                na.rm = TRUE
+              )
+              
+              test_success <- ifelse(testtotal > 0, test_successes / testtotal, NA)
+          # Avoid division by zero and missing values
+          if (total > 0) {
+            success_rate <- successes / total
+            
+            if (!is.na(success_rate) && success_rate > 0.2 && total > 10 && !is.na(test_success) && test_success > 0.2) {
+              upper <- y + group
+              lower <- y
+              upper2 <- q + group2
+              lower2 <- q
+              upper3 <- s + group3
+              lower3 <- s
+              upper4 <- r + group4
+              lower4 <- r
+              
+              uppercol <- c(uppercol, upper)
+              lowercol <- c(lowercol, lower)
+              uppercol2 <- c(uppercol2, upper2)
+              lowercol2 <- c(lowercol2, lower2)
+              uppercol3 <- c(uppercol3, upper3)
+              lowercol3 <- c(lowercol3, lower3)
+              uppercol4 <- c(uppercol4, upper4)
+              lowercol4 <- c(lowercol4, lower4)
+              totalcol <- c(totalcol, total)
+              srcol <- c(srcol, success_rate)
+              
+              # Test set calculations
+              
+              
+              test_succcol <- c(test_succcol, test_success)
+              testtotalcol <- c(testtotalcol, testtotal)
+              
+              success_comb <- (total*success_rate + testtotal*test_success)/(total + testtotal)
+              comb_success <- c(comb_success, success_comb)
+              
+              stat1 <- c(stat1, var1)
+              stat2 <- c(stat2, var2)
+              stat3 <- c(stat3, var3)
+              stat4 <- c(stat4, var4)
+            }
+          }
+        }
+        }
+      }
+    }
+  }
+  success_ranges <- data.frame(
+    success = srcol,
+    total = totalcol,
+    test_success = test_succcol,
+    test_total = testtotalcol,
+    overall_success = comb_success,
+    metric1 = stat1,
+    lower = lowercol,
+    upper = uppercol,
+    metric2 = stat2,
+    lower2 = lowercol2,
+    upper2 = uppercol2,
+    metric3 = stat3,
+    lower3 = lowercol3,
+    upper3 = uppercol3,
+    metric4 = stat4,
+    lower4 = lowercol4,
+    upper4 = uppercol4
+)
+  return(success_ranges)
+}
+
+cat1 <- c("LD.", "FB.", "GB.", "GB.FB", "HR.FB")
+cat2 <- c("Pull.", "Cent.", "Oppo.")
+cat3 <- c("BB._A", "K._A", "BB.K_A")
+cat4 <- c("AVG.y", "OBP_A", "SLG_A", "OPS_A", "ISO_A")
+
+all_sr <- data.frame()
+   
+
+for (a in 1:5) {
+  b <- cat1[a]
+  for (c in 1:3) {
+    d <- cat2[c]
+    for (e in 1:3) {
+      f <- cat3[e]
+      for (g in 1:5){
+        h <- cat4[g]
+        sr <- myfun(b, d, f, h)
+      all_sr <- rbind(all_sr, sr)
+      }
+    }
+  }
+}
+
+
+```
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
